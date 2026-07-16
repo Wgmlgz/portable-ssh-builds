@@ -86,7 +86,7 @@ jobs:
             apk add --no-cache bash build-base autoconf automake libtool perl \
               curl jq gnupg pkgconf openssl-dev openssl-libs-static zlib-dev zlib-static linux-headers
             bash scripts/build-linux.sh "$VERSION" "dist/$PLATFORM"
-            chown -R "$HOST_UID:$HOST_GID" "dist/$PLATFORM"
+            chown -R "$HOST_UID:$HOST_GID" dist
           '
       - name: Build macOS package
         if: matrix.kind == 'macos'
