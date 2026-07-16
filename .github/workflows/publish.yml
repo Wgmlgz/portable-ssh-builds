@@ -166,10 +166,15 @@ jobs:
           PLATFORM: ${{ matrix.platform }}
         run: |
           archive=$(printf '%s\n' portable-openssh-*)
-          extension=".${archive##*.}"
+          if [[ "$archive" == *.tar.gz ]]; then
+            extension='.tar.gz'
+          else
+            extension='.zip'
+          fi
           # CI artifacts retain their traceable, versioned filenames. The
           # public release asset is intentionally short and platform-specific.
           gh release delete-asset "$TAG" "$archive" --yes 2>/dev/null || true
+          gh release delete-asset "$TAG" "openssh-${PLATFORM}.gz" --yes 2>/dev/null || true
           release_asset="openssh-${PLATFORM}${extension}"
           cp "$archive" "$release_asset"
           gh release upload "$TAG" "$release_asset" --clobber
