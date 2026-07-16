@@ -1,19 +1,112 @@
-name: Verify packaging scripts
+name: Verify portable OpenSSH packages
 
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: ['**']
+
+concurrency:
+  group: verify-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  shell-syntax:
+  discover:
     runs-on: ubuntu-24.04
+    outputs:
+      portable_version: ${{ steps.release.outputs.portable_version }}
+      windows_version: ${{ steps.release.outputs.windows_version }}
+      windows_asset_url: ${{ steps.release.outputs.windows_asset_url }}
+      windows_asset_sha256: ${{ steps.release.outputs.windows_asset_sha256 }}
+      snapshot: ${{ steps.release.outputs.snapshot }}
     steps:
       - uses: actions/checkout@v4
-      - name: Validate Bash syntax
+      - name: Check script syntax
         run: bash -n scripts/*.sh
-      - name: Validate workflow YAML
-        run: ruby -e 'require "yaml"; Dir[".github/workflows/*.yml"].each { |f| YAML.load_file(f); puts f }'
+      - name: Select upstream snapshot for this test
+        id: release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: scripts/discover-release.sh
+
+  package:
+    needs: discover
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            runner: ubuntu-24.04
+            kind: linux
+          - platform: linux-aarch64
+            runner: ubuntu-24.04-arm
+            kind: linux
+          - platform: macos-x86_64
+            runner: macos-13
+            kind: macos
+          - platform: macos-arm64
+            runner: macos-14
+            kind: macos
+          - platform: windows-x86_64
+            runner: windows-2025
+            kind: windows
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Linux package in native Alpine container
+        if: matrix.kind == 'linux'
+        env:
+          VERSION: ${{ needs.discover.outputs.portable_version }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          docker run --rm -e VERSION -e PLATFORM -v "$GITHUB_WORKSPACE:/src" -w /src alpine:3.20 sh -ec '
+            apk add --no-cache bash build-base autoconf automake libtool perl curl jq gnupg pkgconf openssl-dev openssl-libs-static zlib-dev zlib-static linux-headers
+            bash scripts/build-linux.sh "$VERSION" "dist/$PLATFORM"
+          '
+      - name: Build macOS package
+        if: matrix.kind == 'macos'
+        env:
+          VERSION: ${{ needs.discover.outputs.portable_version }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          brew install openssl@3 zlib gnupg
+          scripts/build-macos.sh "$VERSION" "dist/$PLATFORM"
+      - name: Repackage official Windows archive
+        if: matrix.kind == 'windows'
+        shell: pwsh
+        env:
+          ASSET_URL: ${{ needs.discover.outputs.windows_asset_url }}
+          ASSET_SHA256: ${{ needs.discover.outputs.windows_asset_sha256 }}
+          PLATFORM: ${{ matrix.platform }}
+        run: scripts/package-windows.ps1 -AssetUrl $env:ASSET_URL -OutDir "dist/$env:PLATFORM" -Sha256 $env:ASSET_SHA256
+      - name: Add metadata and validate the flat package
+        shell: bash
+        env:
+          SNAPSHOT: ${{ needs.discover.outputs.snapshot }}
+          PORTABLE_VERSION: ${{ needs.discover.outputs.portable_version }}
+          WINDOWS_VERSION: ${{ needs.discover.outputs.windows_version }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          scripts/finalize-package.sh "dist/$PLATFORM" "$SNAPSHOT" "$PLATFORM" "$PORTABLE_VERSION" "$WINDOWS_VERSION"
+          scripts/validate-package.sh "dist/$PLATFORM" "$PLATFORM"
+      - name: Archive verified package
+        shell: bash
+        env:
+          SNAPSHOT: ${{ needs.discover.outputs.snapshot }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          name="portable-openssh-${SNAPSHOT}-${PLATFORM}"
+          mv "dist/$PLATFORM" "dist/$name"
+          if [[ $PLATFORM == windows-* ]]; then
+            (cd dist && 7z a "../$name.zip" "$name")
+          else
+            tar -C dist -czf "$name.tar.gz" "$name"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: verify-${{ matrix.platform }}
+          path: portable-openssh-*
+          if-no-files-found: error
+          retention-days: 7
