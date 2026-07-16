@@ -1,0 +1,3 @@
+# GitHub's Windows runner invokes these through Git Bash; keep their shebangs
+# and shell syntax in Unix line-ending form.
+*.sh text eol=lf

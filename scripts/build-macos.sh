@@ -5,6 +5,7 @@ out=${2:?output directory required}
 source_base=https://cdn.openbsd.org/pub/OpenBSD/OpenSSH/portable
 tarball="openssh-${version}.tar.gz"
 mkdir -p "$out" work
+out=$(cd "$out" && pwd)
 curl -fsSLO "$source_base/$tarball"
 curl -fsSLO "$source_base/$tarball.asc"
 curl -fsSL https://cdn.openbsd.org/pub/OpenBSD/OpenSSH/RELEASE_KEY.asc -o RELEASE_KEY.asc
