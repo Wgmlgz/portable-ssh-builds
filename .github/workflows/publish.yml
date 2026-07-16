@@ -163,7 +163,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.discover.outputs.snapshot }}
-        run: gh release upload "$TAG" portable-openssh-* --clobber
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          archive=$(printf '%s\n' portable-openssh-*)
+          extension=".${archive##*.}"
+          # CI artifacts retain their traceable, versioned filenames. The
+          # public release asset is intentionally short and platform-specific.
+          gh release delete-asset "$TAG" "$archive" --yes 2>/dev/null || true
+          gh release upload "$TAG" "$archive#openssh-${PLATFORM}${extension}" --clobber
 
   publish:
     needs: [discover, create_release, package]
