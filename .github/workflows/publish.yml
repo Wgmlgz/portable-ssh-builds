@@ -41,6 +41,7 @@ jobs:
     if: needs.discover.outputs.exists != 'true'
     runs-on: ubuntu-24.04
     steps:
+      - uses: actions/checkout@v4
       - name: Create private draft release
         env:
           GH_TOKEN: ${{ github.token }}
