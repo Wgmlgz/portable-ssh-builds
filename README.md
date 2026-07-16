@@ -33,6 +33,6 @@ See [docs/archive-layout.md](docs/archive-layout.md) and
 
 `.github/workflows/publish.yml` runs on pushes to `main` and daily. It selects
 the newest upstream snapshot and publishes only when this repository does not
-already have that exact snapshot tag. It creates a public release before
+already have that exact snapshot tag. It creates a public pre-release before
 building, uploads each completed platform archive immediately, then finalizes
 the release after every platform succeeds.

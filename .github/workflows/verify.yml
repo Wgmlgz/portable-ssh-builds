@@ -43,9 +43,6 @@ jobs:
           - platform: linux-aarch64
             runner: ubuntu-24.04-arm
             kind: linux
-          - platform: macos-x86_64
-            runner: macos-13
-            kind: macos
           - platform: macos-arm64
             runner: macos-14
             kind: macos
