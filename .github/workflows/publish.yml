@@ -51,10 +51,10 @@ jobs:
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Reusing existing in-progress release $TAG"
-            gh release edit "$TAG" --draft=false --prerelease
+            gh release edit "$TAG" --draft=false --prerelease=false
             exit 0
           fi
-          gh release create "$TAG" --prerelease \
+          gh release create "$TAG" \
             --title "Portable OpenSSH $PORTABLE + Win32-OpenSSH $WINDOWS" \
             --notes "Registry snapshot of independent Portable OpenSSH ($PORTABLE) and Win32-OpenSSH ($WINDOWS) upstream releases. This release does not claim compatibility parity. See each archive's manifest.json."
 
