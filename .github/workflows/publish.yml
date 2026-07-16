@@ -1,0 +1,156 @@
+name: Publish portable OpenSSH snapshot
+
+on:
+  schedule:
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+    inputs:
+      portable_tag:
+        description: 'Optional exact openssh/openssh-portable release tag'
+        required: false
+        type: string
+      windows_tag:
+        description: 'Optional exact PowerShell/Win32-OpenSSH release tag'
+        required: false
+        type: string
+
+concurrency:
+  group: portable-openssh-publish
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  discover:
+    runs-on: ubuntu-24.04
+    outputs:
+      exists: ${{ steps.exists.outputs.exists }}
+      portable_version: ${{ steps.release.outputs.portable_version }}
+      windows_version: ${{ steps.release.outputs.windows_version }}
+      windows_asset_url: ${{ steps.release.outputs.windows_asset_url }}
+      windows_asset_sha256: ${{ steps.release.outputs.windows_asset_sha256 }}
+      snapshot: ${{ steps.release.outputs.snapshot }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select upstream snapshot
+        id: release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PORTABLE_TAG: ${{ inputs.portable_tag }}
+          WINDOWS_TAG: ${{ inputs.windows_tag }}
+        run: scripts/discover-release.sh
+      - name: Check this registry
+        id: exists
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: scripts/release-exists.sh '${{ steps.release.outputs.snapshot }}'
+
+  package:
+    needs: discover
+    if: needs.discover.outputs.exists != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            runner: ubuntu-24.04
+            kind: linux
+          - platform: linux-aarch64
+            runner: ubuntu-24.04-arm
+            kind: linux
+          - platform: macos-x86_64
+            runner: macos-13
+            kind: macos
+          - platform: macos-arm64
+            runner: macos-14
+            kind: macos
+          - platform: windows-x86_64
+            runner: windows-2025
+            kind: windows
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux build dependencies
+        if: matrix.kind == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y docker.io
+      - name: Build Linux package in native Alpine container
+        if: matrix.kind == 'linux'
+        env:
+          VERSION: ${{ needs.discover.outputs.portable_version }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          docker run --rm -e VERSION -e PLATFORM -v "$GITHUB_WORKSPACE:/src" -w /src alpine:3.20 sh -ec '
+            apk add --no-cache bash build-base autoconf automake libtool perl \
+              curl jq gnupg pkgconf openssl-dev openssl-libs-static zlib-dev zlib-static linux-headers
+            bash scripts/build-linux.sh "$VERSION" "dist/$PLATFORM"
+          '
+      - name: Build macOS package
+        if: matrix.kind == 'macos'
+        env:
+          VERSION: ${{ needs.discover.outputs.portable_version }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          brew install openssl@3 zlib gnupg
+          scripts/build-macos.sh "$VERSION" "dist/$PLATFORM"
+      - name: Repackage official Windows archive
+        if: matrix.kind == 'windows'
+        shell: pwsh
+        env:
+          ASSET_URL: ${{ needs.discover.outputs.windows_asset_url }}
+          ASSET_SHA256: ${{ needs.discover.outputs.windows_asset_sha256 }}
+          PLATFORM: ${{ matrix.platform }}
+        run: scripts/package-windows.ps1 -AssetUrl $env:ASSET_URL -OutDir "dist/$env:PLATFORM" -Sha256 $env:ASSET_SHA256
+      - name: Add metadata and validate flat layout
+        shell: bash
+        env:
+          SNAPSHOT: ${{ needs.discover.outputs.snapshot }}
+          PORTABLE_VERSION: ${{ needs.discover.outputs.portable_version }}
+          WINDOWS_VERSION: ${{ needs.discover.outputs.windows_version }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          scripts/finalize-package.sh "dist/$PLATFORM" "$SNAPSHOT" "$PLATFORM" "$PORTABLE_VERSION" "$WINDOWS_VERSION"
+          scripts/validate-package.sh "dist/$PLATFORM" "$PLATFORM"
+      - name: Create archive
+        shell: bash
+        env:
+          SNAPSHOT: ${{ needs.discover.outputs.snapshot }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          name="portable-openssh-${SNAPSHOT}-${PLATFORM}"
+          mv "dist/$PLATFORM" "dist/$name"
+          if [[ $PLATFORM == windows-* ]]; then
+            (cd dist && 7z a "../$name.zip" "$name")
+          else
+            tar -C dist -czf "$name.tar.gz" "$name"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: portable-openssh-*
+          if-no-files-found: error
+
+  publish:
+    needs: [discover, package]
+    if: needs.discover.outputs.exists != 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Generate release checksums
+        working-directory: artifacts
+        run: sha256sum portable-openssh-* > SHA256SUMS
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.discover.outputs.snapshot }}
+          PORTABLE: ${{ needs.discover.outputs.portable_version }}
+          WINDOWS: ${{ needs.discover.outputs.windows_version }}
+        run: |
+          gh release create "$TAG" artifacts/* \
+            --title "Portable OpenSSH $PORTABLE + Win32-OpenSSH $WINDOWS" \
+            --notes "Registry snapshot of independent Portable OpenSSH ($PORTABLE) and Win32-OpenSSH ($WINDOWS) upstream releases. This release does not claim compatibility parity. See each archive's manifest.json."

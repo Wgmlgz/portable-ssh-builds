@@ -1,0 +1,7 @@
+# Local build/test output
+work/
+.alpine-verify/
+openssh-*.tar.gz
+openssh-*.tar.gz.asc
+RELEASE_KEY.asc
+dist/
