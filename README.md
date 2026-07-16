@@ -31,7 +31,8 @@ See [docs/archive-layout.md](docs/archive-layout.md) and
 
 ## Publishing
 
-`.github/workflows/publish.yml` runs daily. It selects the newest upstream
-snapshot and publishes only when this repository does not already have that
-exact snapshot tag. It creates a private draft release before building, uploads
-the completed assets, then publishes it; failed builds delete their draft.
+`.github/workflows/publish.yml` runs on pushes to `main` and daily. It selects
+the newest upstream snapshot and publishes only when this repository does not
+already have that exact snapshot tag. It creates a private draft release before
+building, uploads the completed assets, then publishes it; failed builds delete
+their draft.
