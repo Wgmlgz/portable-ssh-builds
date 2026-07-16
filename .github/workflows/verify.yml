@@ -82,6 +82,7 @@ jobs:
           PLATFORM: ${{ matrix.platform }}
         run: scripts/package-windows.ps1 -AssetUrl $env:ASSET_URL -OutDir "dist/$env:PLATFORM" -Sha256 $env:ASSET_SHA256
       - name: Add metadata and validate the flat package
+        if: matrix.kind != 'windows'
         shell: bash
         env:
           SNAPSHOT: ${{ needs.discover.outputs.snapshot }}
@@ -91,6 +92,24 @@ jobs:
         run: |
           scripts/finalize-package.sh "dist/$PLATFORM" "$SNAPSHOT" "$PLATFORM" "$PORTABLE_VERSION" "$WINDOWS_VERSION"
           scripts/validate-package.sh "dist/$PLATFORM" "$PLATFORM"
+      - name: Add metadata and validate the Windows flat package
+        if: matrix.kind == 'windows'
+        shell: pwsh
+        env:
+          SNAPSHOT: ${{ needs.discover.outputs.snapshot }}
+          PORTABLE_VERSION: ${{ needs.discover.outputs.portable_version }}
+          WINDOWS_VERSION: ${{ needs.discover.outputs.windows_version }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          $dir = "dist/$env:PLATFORM"
+          @"
+          Portable OpenSSH snapshot: $env:SNAPSHOT
+          Platform: $env:PLATFORM
+          Add this directory to PATH. This snapshot records independent upstream versions; it does not claim Portable OpenSSH and Win32-OpenSSH feature parity.
+          "@ | Set-Content -NoNewline (Join-Path $dir 'README.txt')
+          @{ snapshot = $env:SNAPSHOT; platform = $env:PLATFORM; portable_openssh_version = $env:PORTABLE_VERSION; win32_openssh_version = $env:WINDOWS_VERSION; compatibility_claim = $false } | ConvertTo-Json -Compress | Set-Content -NoNewline (Join-Path $dir 'manifest.json')
+          foreach ($file in 'ssh.exe', 'sshd.exe', 'scp.exe', 'sftp.exe', 'ssh-keygen.exe', 'LICENSE', 'README.txt', 'manifest.json') { if (-not (Test-Path (Join-Path $dir $file))) { throw "Missing $file" } }
+          if (Get-ChildItem -Path $dir -Directory | Select-Object -First 1) { throw 'Package must be flat; directories are not allowed.' }
       - name: Archive verified package
         shell: bash
         env:
