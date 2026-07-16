@@ -8,7 +8,7 @@ case "$status" in
   200)
     # A failed run may leave a draft temporarily; it is not a published
     # registry entry and must not prevent a later automatic retry.
-    if jq -e '.draft == false' "$response" >/dev/null; then
+    if jq -e '.draft == false and .prerelease == false' "$response" >/dev/null; then
       echo 'exists=true' >> "$GITHUB_OUTPUT"
     else
       echo 'exists=false' >> "$GITHUB_OUTPUT"
