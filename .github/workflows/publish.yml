@@ -159,6 +159,7 @@ jobs:
           path: portable-openssh-*
           if-no-files-found: error
       - name: Attach completed asset to release immediately
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.discover.outputs.snapshot }}
