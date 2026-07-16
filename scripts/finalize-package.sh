@@ -12,6 +12,9 @@ Platform: $platform
 Add this directory to PATH. This snapshot records independent upstream versions;
 it does not claim Portable OpenSSH and Win32-OpenSSH feature parity.
 EOF
-jq -n --arg snapshot "$snapshot" --arg platform "$platform" \
-  --arg portable "$portable_version" --arg windows "$windows_version" \
-  '{snapshot:$snapshot, platform:$platform, portable_openssh_version:$portable, win32_openssh_version:$windows, compatibility_claim:false}' > "$dir/manifest.json"
+# Keep this dependency-free: GitHub's Windows runners provide Bash but do not
+# guarantee jq. These fields are upstream release tags/platform identifiers and
+# are constrained by discovery, so they cannot contain JSON quoting characters.
+cat > "$dir/manifest.json" <<EOF
+{"snapshot":"$snapshot","platform":"$platform","portable_openssh_version":"$portable_version","win32_openssh_version":"$windows_version","compatibility_claim":false}
+EOF
