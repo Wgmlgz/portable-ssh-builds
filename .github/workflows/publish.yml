@@ -3,16 +3,6 @@ name: Publish portable OpenSSH snapshot
 on:
   schedule:
     - cron: '23 3 * * *'
-  workflow_dispatch:
-    inputs:
-      portable_tag:
-        description: 'Optional exact openssh/openssh-portable release tag'
-        required: false
-        type: string
-      windows_tag:
-        description: 'Optional exact PowerShell/Win32-OpenSSH release tag'
-        required: false
-        type: string
 
 concurrency:
   group: portable-openssh-publish
@@ -37,8 +27,6 @@ jobs:
         id: release
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          PORTABLE_TAG: ${{ inputs.portable_tag }}
-          WINDOWS_TAG: ${{ inputs.windows_tag }}
         run: scripts/discover-release.sh
       - name: Check this registry
         id: exists
@@ -46,8 +34,24 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: scripts/release-exists.sh '${{ steps.release.outputs.snapshot }}'
 
-  package:
+  create_draft:
     needs: discover
+    if: needs.discover.outputs.exists != 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Create private draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.discover.outputs.snapshot }}
+          PORTABLE: ${{ needs.discover.outputs.portable_version }}
+          WINDOWS: ${{ needs.discover.outputs.windows_version }}
+        run: |
+          gh release create "$TAG" --draft \
+            --title "Portable OpenSSH $PORTABLE + Win32-OpenSSH $WINDOWS" \
+            --notes "Registry snapshot of independent Portable OpenSSH ($PORTABLE) and Win32-OpenSSH ($WINDOWS) upstream releases. This release does not claim compatibility parity. See each archive's manifest.json."
+
+  package:
+    needs: [discover, create_draft]
     if: needs.discover.outputs.exists != 'true'
     strategy:
       fail-fast: false
@@ -153,8 +157,8 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: [discover, package]
-    if: needs.discover.outputs.exists != 'true'
+    needs: [discover, create_draft, package]
+    if: needs.discover.outputs.exists != 'true' && needs.package.result == 'success'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@v4
@@ -164,13 +168,23 @@ jobs:
       - name: Generate release checksums
         working-directory: artifacts
         run: sha256sum portable-openssh-* > SHA256SUMS
-      - name: Create GitHub Release
+      - name: Upload assets and publish draft
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.discover.outputs.snapshot }}
           PORTABLE: ${{ needs.discover.outputs.portable_version }}
           WINDOWS: ${{ needs.discover.outputs.windows_version }}
         run: |
-          gh release create "$TAG" artifacts/* \
-            --title "Portable OpenSSH $PORTABLE + Win32-OpenSSH $WINDOWS" \
-            --notes "Registry snapshot of independent Portable OpenSSH ($PORTABLE) and Win32-OpenSSH ($WINDOWS) upstream releases. This release does not claim compatibility parity. See each archive's manifest.json."
+          gh release upload "$TAG" artifacts/*
+          gh release edit "$TAG" --draft=false
+
+  cleanup_failed_draft:
+    needs: [discover, create_draft, package]
+    if: always() && needs.discover.outputs.exists != 'true' && needs.create_draft.result == 'success' && needs.package.result != 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Delete incomplete draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.discover.outputs.snapshot }}
+        run: gh release delete "$TAG" --yes --cleanup-tag
