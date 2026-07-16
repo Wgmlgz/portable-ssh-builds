@@ -10,6 +10,6 @@ done
 for metadata in LICENSE README.txt manifest.json; do
   [[ -f "$dir/$metadata" ]] || { echo "missing $metadata" >&2; exit 1; }
 done
-find "$dir" -mindepth 1 -type d -print -quit | grep -q . && {
+if find "$dir" -mindepth 1 -type d -print -quit | grep -q .; then
   echo 'package must be flat; directories are not allowed' >&2; exit 1;
-}
+fi
